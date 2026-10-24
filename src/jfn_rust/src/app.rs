@@ -1046,6 +1046,20 @@ fn run_app(
 
     let boot = BackgroundCapture::Pending;
 
+    // The Windows backend resolves its HWND from mpv's observed `window-id`,
+    // which only exists once the core thread has created the VO window, so
+    // the wait must precede platform init. It reads only the mpv ingest
+    // source and the host readiness flag, so running it first is safe on
+    // every backend.
+    let boot = match wait_for_vo_window(boot) {
+        Ok(boot) => boot,
+        Err(error) => {
+            let code = error.exit_code();
+            tracing::info!(target: "Main", "{error}");
+            return code;
+        }
+    };
+
     // Platform init precedes both the shell overlay and `CefInitialize`: the
     // overlay's surface needs the backend's compositor devices, and the
     // connect screen must be on screen while CEF is still starting.
@@ -1096,14 +1110,6 @@ fn run_app(
         }
     } else {
         Some(runtime)
-    };
-    let boot = match wait_for_vo_window(boot) {
-        Ok(boot) => boot,
-        Err(error) => {
-            let code = error.exit_code();
-            tracing::info!(target: "Main", "{error}");
-            return code;
-        }
     };
     if let Some(readiness) = shell_readiness {
         match readiness.wait(platform, std::time::Duration::from_secs(5)) {
